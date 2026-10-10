@@ -1,0 +1,19 @@
+# AnythingLLM 配置
+ANYTHINGLLM_BASE_URL = "http://localhost:3001"
+ANYTHINGLLM_API_KEY = "JJ03C84-V1V409F-NF5TZ4M-DF0B47Q"
+
+# 默认工作区
+DEFAULT_WORKSPACE_SLUG = "4b4a52f0-3418-4743-82c4-21f5c0a1c062"
+
+# MCP Server 配置
+MCP_SERVER_NAME = "anythingllm-knowledge"
+MCP_SERVER_VERSION = "1.0.0"
+
+# 缓存策略（SEP-2549）
+TOOL_TTL_MS = 60000  # 1 分钟（向量搜索结果缓存）
+TOOL_CACHE_SCOPE = "user"
+
+# HTTP 传输配置
+HTTP_PORT = 9090
+HTTP_HOST = "127.0.0.1"
+HTTP_PATH = "/mcp"
