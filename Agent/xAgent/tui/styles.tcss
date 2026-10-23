@@ -1,0 +1,122 @@
+/* xAgent TUI 主题 */
+
+Screen {
+    background: #0f1117;
+    color: #d8dee9;
+}
+
+Header {
+    background: #151a24;
+    color: #e6edf3;
+}
+
+Footer {
+    background: #151a24;
+    color: #8b949e;
+}
+
+/* ---------- 对话区 ---------- */
+
+#chat {
+    height: 1fr;
+    padding: 1 2;
+    background: #0f1117;
+    scrollbar-size-vertical: 1;
+}
+
+#chat > * {
+    width: 100%;
+}
+
+.msg-user {
+    margin: 1 2 0 10;
+    padding: 0 2;
+    background: #1b2a44;
+    color: #e6edf3;
+    border-left: thick #5b8def;
+}
+
+.msg-assistant {
+    margin: 1 10 0 2;
+    padding: 0 2;
+    background: #141922;
+    border-left: thick #3fb950;
+}
+
+Markdown {
+    background: transparent;
+}
+
+.msg-system {
+    margin: 1 6;
+    padding: 0 2;
+    color: #8b949e;
+    text-align: center;
+}
+
+.msg-system.warn {
+    background: #2a2314;
+    color: #e3b341;
+    border-left: thick #d29922;
+    text-align: left;
+}
+
+.msg-error {
+    margin: 1 6;
+    padding: 0 2;
+    background: #2a1417;
+    color: #ffb4ae;
+    border-left: thick #f85149;
+}
+
+/* ---------- 工具调用 ---------- */
+
+.tool-panel {
+    margin: 1 6;
+    background: #131820;
+    border: round #2a3142;
+}
+
+.tool-panel > CollapsibleTitle {
+    background: #1a2233;
+    color: #9fb3d1;
+}
+
+.tool-body {
+    padding: 0 1;
+    color: #a8b3c4;
+}
+
+/* ---------- 状态栏与输入框 ---------- */
+
+.status-bar {
+    height: 1;
+    padding: 0 1;
+    background: #0b0e14;
+    color: #8b949e;
+}
+
+.status-bar.busy {
+    color: #d2a8ff;
+}
+
+.status-bar.error {
+    color: #f85149;
+}
+
+#prompt {
+    height: 3;
+    margin: 0 1;
+    border: tall #2a3142;
+    background: #151a24;
+    color: #e6edf3;
+}
+
+#prompt:focus {
+    border: tall #5b8def;
+}
+
+#prompt:disabled {
+    color: #5c6675;
+    border: tall #1b2130;
+}
