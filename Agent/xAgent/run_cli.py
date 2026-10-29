@@ -61,7 +61,7 @@ async def repl() -> int:
                 print(f"模型：{settings.model}")
                 print(f"沙箱：{agent.sandbox.root}")
                 print(f"上下文消息数：{len(agent.history)}")
-                print(f"可用工具数：{len(agent.registry)}\n")
+                print(f"可用工具数：{len(agent.tools)}\n")
                 continue
 
             line_open = False

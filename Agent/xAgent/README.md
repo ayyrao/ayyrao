@@ -1,119 +1,154 @@
-# xAgent — 文件管理 Function Call Agent
+# xAgent — 文件管理 + 联网搜索 Function Call Agent
 
-基于 OpenAI SDK（DeepSeek 接口）与 Textual 的文件管理 Agent，在原
-`Practice02/chat.py` 的基础上完成 **核心层 / 界面层分离** 重构。
+基于 OpenAI SDK（DeepSeek 接口）与 Textual 的 Function Calling Agent。
+在原有 10 个文件工具的基础上，新增两个联网工具：
 
-- `core/`：工具定义、function call 调度、10 个文件工具、路径安全校验、大模型对话循环。
-  不 import 任何 UI 库，不包含 `print` / `input`，可独立运行。
-- `tui/`：基于 Textual 的终端界面，只负责渲染、接收输入、展示事件，不含业务与工具逻辑。
+- **`fetchUrl`**：`subprocess` 调用 `curl` 下载网页，`trafilatura` 提取正文并转 Markdown；
+- **`searchWeb`**：调用百度千帆 AI 搜索 API，返回标题、摘要、url 列表。
+
+核心层不依赖任何 UI 库，CLI 与 Textual TUI 复用同一套 Agent 与事件流。
 
 ---
 
 ## 一、目录结构
 
-```
+```text
 Agent/xAgent/
 ├── config.ini                 # 本地配置（含密钥，已被 .gitignore 忽略）
 ├── config.example.ini         # 配置模板
 ├── requirements.txt
 ├── run_tui.py                 # TUI 启动入口
-├── run_cli.py                 # CLI 启动入口（证明 core 可独立运行）
+├── run_cli.py                 # CLI 启动入口
 ├── core/                      # ============ 核心层 ============
-│   ├── __init__.py            # 对外公开接口
+│   ├── __init__.py
 │   ├── config.py              # Settings：ini + 环境变量
 │   ├── security.py            # PathSandbox：路径安全沙箱
-│   ├── events.py              # AgentEvent 事件协议（界面层唯一依赖）
-│   ├── agent.py               # Agent 主循环：流式对话 + function call
+│   ├── events.py              # AgentEvent 事件协议
+│   ├── agent.py               # Agent 主循环 + 全局 tools + 工具分发
 │   ├── llm/
 │   │   ├── __init__.py
-│   │   └── client.py          # AsyncOpenAI 封装（流式/非流式归一化）
+│   │   └── client.py          # AsyncOpenAI 封装
 │   └── tools/
-│       ├── __init__.py        # build_default_registry()
-│       ├── registry.py        # ToolSpec / ToolRegistry / 参数解析与分发
-│       ├── file_tools.py      # 10 个文件工具实现
-│       └── file_schemas.py    # 10 个工具的 function-calling 声明
+│       ├── __init__.py        # build_default_registry()（文件工具）
+│       ├── registry.py        # ToolSpec / ToolRegistry
+│       ├── file_tools.py      # 10 个文件工具实现（未改动）
+│       ├── file_schemas.py    # 10 个文件工具声明（未改动）
+│       └── web_tools.py       # fetchUrl / searchWeb 实现 + 两个 schema
 └── tui/                       # ============ 界面层 ============
-    ├── __init__.py
-    ├── __main__.py            # python -m tui
-    ├── app.py                 # Textual App：布局、事件消费、命令、快捷键
-    ├── styles.tcss            # 界面样式
+    ├── app.py
+    ├── styles.tcss
     └── widgets/
-        ├── __init__.py
-        ├── chat_view.py       # 滚动区与消息挂载
-        ├── messages.py        # 用户/助手/系统/错误/工具调用控件
-        └── status_bar.py      # 底部状态栏
 ```
 
-依赖方向严格单向：
+依赖方向：
 
-```
-tui  ──依赖──▶  core
-core ──依赖──▶  无界面库
+```text
+tui  ──依赖──▶  core  ──依赖──▶  无界面库
 ```
 
-`core` 内部也不反向依赖 `tui`；`tui` 只 import `core` 的 `Agent`、`Settings` 和事件类。
+`core` 内部不反向依赖 `tui`，也不做 `print` / `input`。
 
 ---
 
 ## 二、架构
 
+### 2.1 整体流程图
+
 ```mermaid
-flowchart LR
-    subgraph UI["界面层（可替换）"]
-        TUI["tui/ · Textual"]
-        WEB["web/ · 未来"]
-        DESK["desktop/ · 未来"]
-    end
+flowchart TD
+    U["用户输入"] --> A["Agent.stream_turn()"]
+    A -->|"messages + self.tools<br/>12 个工具 schema"| L["LLM / DeepSeek"]
+    L -->|"普通文本"| O["TextDelta / TurnFinished"]
+    L -->|"tool_calls"| D{"_dispatch_tool(name)"}
 
-    subgraph CORE["core/ · 无界面依赖"]
-        AG["Agent\n流式对话循环\n事件生成"]
-        REG["ToolRegistry\n声明 + 参数解析 + 分发"]
-        FT["FileTools\n10 个文件操作"]
-        SB["PathSandbox\n路径安全校验"]
-        LC["LLMClient\nOpenAI SDK 封装"]
-    end
+    D -->|"name == fetchUrl"| F["fetch_url()"]
+    D -->|"name == searchWeb"| S["search_web()"]
+    D -->|"其他 10 个文件工具"| R["ToolRegistry.invoke()"]
 
-    TUI -- "stream_turn() / AgentEvent" --> AG
-    WEB -. "同一事件协议" .-> AG
-    DESK -. "同一事件协议" .-> AG
-    AG --> REG
-    REG --> FT
-    FT --> SB
-    AG --> LC
-    LC --> LLM[("DeepSeek API")]
+    F --> C["subprocess 调用 curl<br/>列表参数 · 禁用 shell=True"]
+    C --> WEB[("目标网页")]
+    WEB --> T["trafilatura<br/>过滤导航/广告 → Markdown"]
+    T --> J1["结构化 JSON<br/>title / content / url"]
+
+    S --> CFG["读取 config.ini<br/>[search] baidu_qianfan_api_key"]
+    CFG --> Q[("百度千帆 AI 搜索 API")]
+    Q --> J2["结构化 JSON<br/>title / snippet / url"]
+
+    R --> FT["FileTools + PathSandbox"]
+    FT --> FS[("本地沙箱文件")]
+    FT --> J3["工具结果字符串"]
+
+    J1 --> A
+    J2 --> A
+    J3 --> A
+    A -->|"role=tool 消息"| L
+    O --> U
 ```
 
-### 关键设计
+### 2.2 一次联网工具调用的时序
 
-1. **事件驱动的解耦接口**：`Agent.stream_turn(text)` 返回 `AsyncIterator[AgentEvent]`。
-   界面层不认识工具、沙箱和 OpenAI 协议，只消费事件：
+```mermaid
+sequenceDiagram
+    participant U as 用户
+    participant A as Agent
+    participant L as LLM
+    participant W as fetchUrl / searchWeb
+    participant X as 网页 / 千帆 API
 
-   | 事件 | 含义 | 界面层典型处理 |
-   | --- | --- | --- |
-   | `RoundStarted(round)` | 开始新一轮推理 | 更新状态栏 |
-   | `TextDelta(text)` | 流式文本片段 | 追加到助手气泡 |
-   | `ToolCallStarted(call_id, name, arguments, raw_arguments)` | 即将执行工具 | 展示工具面板 |
-   | `ToolCallFinished(call_id, name, ok, output, elapsed)` | 工具执行结束 | 更新面板状态与结果 |
-   | `ErrorEvent(message)` | 可展示的错误 | 错误提示 |
-   | `TurnFinished(final_text, rounds, tool_calls, interrupted)` | 本轮结束 | 收尾、恢复输入 |
+    U->>A: 打开 https://example.com 或 搜索最新消息
+    A->>L: messages + self.tools（10 文件 + 2 联网）
+    L-->>A: tool_calls: fetchUrl / searchWeb
+    A->>W: _dispatch_tool 显式分支调用
+    alt fetchUrl
+        W->>X: curl 下载网页
+        X-->>W: HTML
+        W->>W: trafilatura → Markdown
+    else searchWeb
+        W->>W: 读取 [search] API Key
+        W->>X: POST /v2/ai_search/web_search
+        X-->>W: references[]
+    end
+    W-->>A: {"ok": true, ...} 或 {"ok": false, "error": {...}}
+    A->>L: role=tool 结构化结果
+    L-->>A: 最终回答
+    A-->>U: 流式文本 + 工具面板
+```
 
-   所有事件都带 `to_dict()`，Web 端可直接序列化成 JSON 帧。
+### 2.3 工具注册与分发
 
-2. **工具注册表**：新增工具只需 `registry.register(...)`，Agent 主循环无需改动；
-   工具异常统一收敛为 `ToolExecution(ok=False)`，以字符串回灌模型，程序不会崩溃。
+`Agent.__init__` 构建全局工具声明列表：
 
-3. **协议顺序**：严格保证「带 `tool_calls` 的 assistant 消息 → 对应 role=tool 消息」
-   的先后顺序，满足 OpenAI / DeepSeek 的 function calling 校验。
+```python
+self.registry = registry or build_default_registry(self.sandbox)
+self.tools = self.registry.schemas() + WEB_TOOL_SCHEMAS
+```
 
-4. **取消与回滚**：用户按 `Esc` 中止或发生异常时，`Agent` 回滚到本轮开始前的上下文，
-   不会留下半截 `tool_calls` 导致下一轮请求非法。
+- 10 个文件工具：继续使用 `ToolRegistry`，原有实现与分发逻辑完全不变；
+- `fetchUrl` / `searchWeb`：schema 追加到 `self.tools`，调用时由
+  `Agent._dispatch_tool()` 的显式 `if/elif` 分支处理：
 
-5. **流式输出 + 节流渲染**：模型逐 token 流式返回；界面按 80ms 合并刷新 Markdown，
-   避免频繁重排。
+```python
+if name == "fetchUrl":
+    output = fetch_url(**parsed)
+elif name == "searchWeb":
+    output = search_web(**parsed)
+else:
+    return self.registry.invoke(name, raw_arguments)
+```
+
+所有联网工具错误都返回结构化 JSON：
+
+```json
+{"ok": false, "error": {"type": "http_error", "message": "服务器返回 HTTP 404：...", "status_code": 404}}
+```
+
+模型可以直接读取 `error.type` / `error.message` 并调整方案，不会让 Agent 崩溃。
 
 ---
 
-## 三、10 个文件工具
+## 三、工具清单
+
+### 3.1 文件工具（原有，未改动）
 
 | # | 工具 | 入参 | 行为 |
 | --- | --- | --- | --- |
@@ -128,23 +163,89 @@ flowchart LR
 | 9 | `remove_file` | `path` | 删除文件 |
 | 10 | `rename_item` | `old_path, new_path` | 重命名文件/目录；不覆盖已存在目标 |
 
-### 安全边界
+### 3.2 联网工具（新增）
 
-- 使用 `Path.resolve()` + `is_relative_to()` 校验，符号链接展开后再判断，修复了原先
-  `startswith(BASE_DIR)` 的前缀匹配漏洞（`xAgentEvil/` 可绕过）。
-- 删除 / 重命名不允许作用于沙箱根目录本身。
-- `create_file` 不再静默截断已有文件；`rename_item` 不覆盖目标。
-- 所有越界与非法参数都转成错误字符串返回给模型，由模型自行纠正。
+| 工具 | 入参 | 行为 |
+| --- | --- | --- |
+| `fetchUrl` | `url, timeout=20` | `subprocess` 列表参数调用 `curl` 下载页面（禁止 `shell=True`），`trafilatura` 提取正文转 Markdown，自动过滤导航/广告 |
+| `searchWeb` | `query, top_k=10` | 从 `config.ini` 读取 `[search] baidu_qianfan_api_key`，调用百度千帆 AI 搜索，返回标题、摘要、url |
+
+#### fetchUrl 异常分类
+
+| `error.type` | 触发场景 |
+| --- | --- |
+| `invalid_url` | 非 http/https、缺少主机名 |
+| `curl_not_found` | 系统没有 curl |
+| `timeout` | curl 超时或 Python 子进程超时 |
+| `dns_error` | 域名解析失败 |
+| `connect_error` | 无法连接服务器 |
+| `http_error` | HTTP 4xx / 5xx（含 404） |
+| `empty_response` | 服务器返回空响应 |
+| `response_too_large` | 超过 5 MiB 下载上限 |
+| `parse_failed` | trafilatura 无法提取正文（脚本渲染、登录页、反爬页等） |
+| `missing_dependency` | 未安装 trafilatura |
+
+#### searchWeb 异常分类
+
+| `error.type` | 触发场景 |
+| --- | --- |
+| `invalid_query` | 搜索关键词为空 |
+| `config_missing` | 配置文件 / `[search]` 段 / API Key 缺失 |
+| `config_invalid` | 配置文件读取失败 |
+| `timeout` | 请求超时 |
+| `network_error` | DNS、连接失败或其他网络异常 |
+| `api_error` | HTTP 4xx/5xx 或千帆返回业务错误码 |
+| `missing_dependency` | 未安装 requests |
+
+#### 成功返回示例
+
+`fetchUrl`：
+
+```json
+{
+  "ok": true,
+  "url": "https://example.com",
+  "title": "Example Domain",
+  "content": "This domain is for use in documentation examples...",
+  "content_chars": 156,
+  "truncated": false
+}
+```
+
+`searchWeb`：
+
+```json
+{
+  "ok": true,
+  "query": "百度千帆 AI 搜索",
+  "count": 2,
+  "results": [
+    {"title": "标题 A", "snippet": "摘要 A", "url": "https://a.example"},
+    {"title": "标题 B", "snippet": "摘要 B", "url": "https://b.example"}
+  ]
+}
+```
 
 ---
 
-## 四、运行说明
+## 四、安全与稳定性
 
-### 1. 安装依赖
+- URL 仅允许 `http` / `https`；curl 额外使用 `--proto` / `--proto-redir` 限制协议；
+- curl 使用列表参数和 `--` 终止选项，禁止 `shell=True`，URL 不会被解释成命令行参数；
+- `--connect-timeout` + `--max-time` + Python `subprocess` 超时三重兜底；
+- 下载上限 5 MiB，正文回灌上限 2 万字符（`truncated=true`）；
+- API Key 只从 `config.ini` 的 `[search]` 读取，源码中没有任何密钥；
+- 文件工具继续使用 `PathSandbox`：`resolve()` + `is_relative_to()`，阻止路径越界；
+- 工具异常统一收敛为字符串，Agent 主循环不会因工具失败而崩溃。
+
+---
+
+## 五、安装与配置
+
+### 5.1 安装依赖
 
 ```bash
 cd Agent/xAgent
-
 python -m venv .venv
 
 # Windows CMD / PowerShell
@@ -156,13 +257,13 @@ source .venv/Scripts/activate
 pip install -r requirements.txt
 ```
 
-### 2. 配置
-
-复制模板并填入 API Key（`config.ini` 已被仓库根目录的 `.gitignore` 忽略）：
+`fetchUrl` 依赖系统 `curl`。Windows 10/11 已内置：
 
 ```bash
-cp config.example.ini config.ini
+curl --version
 ```
+
+### 5.2 config.ini
 
 ```ini
 [llm]
@@ -176,18 +277,28 @@ temperature = 0.0
 max_tool_rounds = 10
 request_interval = 0.8
 workspace = workspace
+
+[search]
+# 百度千帆 AI 搜索 API Key：只放这里，禁止写进源码
+baidu_qianfan_api_key = your-baidu-qianfan-api-key
+# 千帆 AI 搜索接口地址
+endpoint = https://qianfan.baidubce.com/v2/ai_search/web_search
+# 单次搜索超时（秒）
+timeout = 15
+# 默认返回条数（1-20）
+top_k = 10
 ```
 
-也可以不写密钥，改用环境变量（优先级更高）：
+`baidu_qianfan_api_key` 留空或仍是占位符时，`searchWeb` 返回 `config_missing`
+结构化错误，不影响 Agent 启动和其他工具使用。
 
-```bash
-export XAGENT_API_KEY=sk-xxxx
-# 可选：XAGENT_BASE_URL / XAGENT_MODEL / XAGENT_WORKSPACE
-```
+`config.ini` 已被仓库根目录的 `.gitignore` 忽略；可复制 `config.example.ini` 作为模板。
 
-`workspace` 是文件沙箱，启动时自动创建；相对路径以 `config.ini` 所在目录为基准。
+---
 
-### 3. 启动 TUI
+## 六、运行
+
+### 6.1 TUI
 
 ```bash
 python run_tui.py
@@ -195,101 +306,119 @@ python run_tui.py
 python -m tui
 ```
 
-界面说明：
+- `Enter` 发送，`Esc` 中止当前请求；
+- `Ctrl+L` 清空对话，`Ctrl+C` 退出；
+- 内置命令：`/help` `/clear` `/reset` `/tools` `/status` `/quit`。
 
-- 输入自然语言指令，`Enter` 发送；
-- `Esc` 中止当前请求（上下文自动回滚）；
-- `Ctrl+L` 清空对话与上下文，`Ctrl+C` 退出；
-- 工具调用以可折叠面板展示参数、结果与耗时。
-
-内置命令：`/help` `/clear` `/reset` `/tools` `/status` `/quit`。
-
-示例指令：
-
-```
-列出当前目录
-新建 docs/notes.md，写入「今天的学习笔记」
-把 docs/notes.md 重命名为 docs/day1.md
-读取 docs/day1.md
-删除 docs 目录
-```
-
-### 4. 启动 CLI（不依赖 Textual）
+### 6.2 CLI
 
 ```bash
 python run_cli.py
 ```
 
-这是验证 `core` 可独立运行的最小入口：只用 `input()` / `print()` 消费同一套事件流。
+示例对话：
+
+```text
+你 > 搜索 2026 年诺贝尔物理学奖，取前 5 条
+你 > 打开上一条结果里的第一个链接，总结正文
+你 > 把总结保存到 notes/physics.md
+你 > 列出 notes 目录
+```
+
+最后两条验证原有文件管理功能没有被破坏。
 
 ---
 
-## 五、扩展新界面（Web / Desktop）
+## 七、测试
 
-界面层只需要实现三件事：**收集输入 → 消费事件流 → 渲染**。
+### 7.1 单函数测试
 
-### Web（FastAPI WebSocket 示意）
+```bash
+# fetchUrl 成功
+python -X utf8 -c "from core.tools.web_tools import fetch_url; print(fetch_url('https://example.com'))"
 
-```python
-from fastapi import FastAPI, WebSocket
+# fetchUrl 404（结构化错误）
+python -X utf8 -c "from core.tools.web_tools import fetch_url; from core.tools.registry import ToolError
+try: print(fetch_url('https://example.com/not-found-page'))
+except ToolError as e: print(e)"
+
+# fetchUrl 超时 / DNS / 非 HTML
+python -X utf8 -c "from core.tools.web_tools import fetch_url; from core.tools.registry import ToolError
+try: print(fetch_url('http://10.255.255.1', 1))
+except ToolError as e: print(e)"
+python -X utf8 -c "from core.tools.web_tools import fetch_url; from core.tools.registry import ToolError
+try: print(fetch_url('https://no-such-host.invalid'))
+except ToolError as e: print(e)"
+python -X utf8 -c "from core.tools.web_tools import fetch_url; from core.tools.registry import ToolError
+try: print(fetch_url('https://api.github.com/repos/python/cpython'))
+except ToolError as e: print(e)"
+
+# searchWeb：未填 Key 时应返回 config_missing
+python -X utf8 -c "from core.tools.web_tools import search_web; from core.tools.registry import ToolError
+try: print(search_web('测试'))
+except ToolError as e: print(e)"
+
+# searchWeb：填写真实 Key 后
+python -X utf8 -c "from core.tools.web_tools import search_web; print(search_web('百度千帆 AI 搜索', 5))"
+```
+
+### 7.2 工具注入与分发测试
+
+```bash
+python -X utf8 -c "
 from core.agent import Agent
-
-app = FastAPI()
-
-@app.websocket("/ws")
-async def ws(sock: WebSocket):
-    await sock.accept()
-    agent = Agent()
-    try:
-        while True:
-            text = await sock.receive_text()
-            async for event in agent.stream_turn(text):
-                await sock.send_json(event.to_dict())   # 事件自带 to_dict()
-    finally:
-        await agent.aclose()
+a = Agent()
+print('tools:', len(a.tools))                       # 12
+print('web:', [t['function']['name'] for t in a.tools][-2:])
+print(a._dispatch_tool('fetchUrl', '{\"url\": \"https://example.com\"}').ok)
+print(a._dispatch_tool('list_dir', '{\"path\": \".\"}').ok)
+"
 ```
 
-### Desktop（PySide / Tkinter 等）
+### 7.3 端到端 Agent 对话测试
 
-在后台线程或 asyncio 事件循环里运行：
-
-```python
-async for event in agent.stream_turn(text):
-    queue.put(event)   # 用线程安全队列把事件交给 GUI 主线程渲染
+```bash
+python run_cli.py
 ```
 
-只要新界面消费的是 `core.events` 里的事件，就不需要改动 `core` 的任何代码。
-TUI 的 `tui/app.py::_handle_event` 就是一份完整的事件消费参考实现。
+依次输入：
 
-### 新增工具
-
-1. 在 `core/tools/file_tools.py` 添加方法；
-2. 在 `core/tools/file_schemas.py` 的 `FILE_TOOL_DEFINITIONS` 添加声明；
-3. 或在启动时向 `ToolRegistry` 注册自定义工具：
-
-```python
-registry.register(
-    name="echo",
-    description="原样返回输入",
-    parameters={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
-    handler=lambda text: text,
-)
-agent = Agent(registry=registry)
+```text
+搜索 2026 年诺贝尔物理学奖，取前 5 条
+打开 https://example.com 并总结正文
+新建 docs/test.md，写入 hello
+读取 docs/test.md
+删除 docs/test.md
 ```
+
+预期：
+
+- `searchWeb` 返回标题 / 摘要 / url；
+- `fetchUrl` 返回 Markdown 正文；
+- 文件工具仍然正常创建、读取、删除；
+- 所有工具调用都以 `[调用]` / `[OK]` 或 `[FAIL]` 展示。
 
 ---
 
-## 六、与原 `chat.py` 的差异
+## 八、扩展新工具
 
-| 项 | 原实现 | 重构后 |
-| --- | --- | --- |
-| 界面与业务 | 混在一个文件 | `core/` 与 `tui/` 完全分离 |
-| 配置 | 密钥硬编码在源码 | `config.ini` + 环境变量 |
-| 输出 | 非流式，一次性 `print` | 流式事件，TUI 增量渲染 |
-| 工具分发 | `if/elif` 长链 | 注册表 + 声明驱动 |
-| 错误处理 | `print` 到终端 | 结构化 `ErrorEvent` |
-| 取消/异常 | 上下文可能残缺 | 自动回滚到本轮之前 |
-| 路径安全 | `startswith` 前缀校验 | `resolve()` + `is_relative_to()` |
-| 可复用性 | 仅终端 | 任意界面/服务复用同一 `Agent` |
+- 文件工具：在 `file_tools.py` 加方法、`file_schemas.py` 加声明，注册表自动分发；
+- 联网工具：在 `web_tools.py` 加 schema 和函数，再追加到 `WEB_TOOL_SCHEMAS`，
+  并在 `Agent._dispatch_tool()` 增加一个显式分支。
+
+---
+
+## 九、依赖清单
+
+```txt
+openai>=1.40.0
+textual>=0.80.0
+requests>=2.31.0
+trafilatura>=1.12.0
+```
+
+系统依赖：
+
+- `curl`（Windows 10/11 自带，Linux/macOS 通常已安装）。
 
 > ⚠️ `config.ini` 中的密钥仅用于本地运行，请勿提交到公开仓库。

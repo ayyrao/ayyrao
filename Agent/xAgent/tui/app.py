@@ -270,14 +270,14 @@ class XAgentApp(App[None]):
             if self._agent is None:
                 await chat.add_error("Agent 尚未初始化。")
                 return
-            specs = self._agent.registry.specs()
+            tools = self._agent.tools
             lines = [
-                f"[bold #5b8def]{escape(spec.name)}[/]  "
-                f"[#8b949e]{escape(spec.description)}[/]"
-                for spec in specs
+                f"[bold #5b8def]{escape(tool['function']['name'])}[/]  "
+                f"[#8b949e]{escape(tool['function'].get('description', ''))}[/]"
+                for tool in tools
             ]
             await chat.add_system(
-                f"[bold]可用工具（{len(specs)} 个）[/]\n" + "\n".join(lines)
+                f"[bold]可用工具（{len(tools)} 个）[/]\n" + "\n".join(lines)
             )
 
         elif command == "/status":
