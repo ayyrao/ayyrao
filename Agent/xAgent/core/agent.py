@@ -30,7 +30,13 @@ from .events import (
 )
 from .llm.client import LLMClient
 from .security import PathSandbox
-from .tools import ToolError, ToolExecution, ToolRegistry, build_default_registry
+from .tools import (
+    ToolError,
+    ToolExecution,
+    ToolRegistry,
+    build_default_registry,
+    run_cli,
+)
 from .tools.web_tools import WEB_TOOL_SCHEMAS, fetch_url, search_web
 
 SYSTEM_PROMPT = """你是一个运行在本地沙箱中的文件管理与联网助手。
@@ -43,8 +49,9 @@ SYSTEM_PROMPT = """你是一个运行在本地沙箱中的文件管理与联网�
 3. 创建文件前先确认是否已存在；修改内容使用 edit_text_file。
 4. remove_dir 只能删除空目录；rename_item 不会覆盖已存在的目标。
 5. 需要最新信息或不知道具体网址时，先调用 searchWeb；拿到链接后用 fetchUrl 阅读正文。
-6. 工具返回错误时，阅读 JSON 中的 error.type / error.message 并调整方案，不要重复同样的失败操作。
-7. 执行完成后，用简洁的中文总结你做了什么，并给出来源链接（如有）。
+6. 需要运行本地命令行程序时使用 RunCli：command 传程序名，args 传参数列表，不要拼接 shell 字符串。
+7. 工具返回错误时，阅读 JSON 中的 error.type / error.message 并调整方案，不要重复同样的失败操作。
+8. 执行完成后，用简洁的中文总结你做了什么，并给出来源链接（如有）。
 """
 
 
@@ -86,7 +93,7 @@ class Agent:
         self.settings = settings or Settings.load()
         self.sandbox = sandbox or PathSandbox(self.settings.workspace)
         self.registry = registry or build_default_registry(self.sandbox)
-        # 全局 tools 列表：原有文件工具 schema + 两个联网工具 schema
+        # 全局 tools 列表：文件工具 + RunCli（均来自注册表）+ 两个联网工具
         self.tools: list[dict[str, Any]] = self.registry.schemas() + WEB_TOOL_SCHEMAS
         self._client = client or LLMClient(self.settings)
         self._owns_client = client is None
@@ -260,6 +267,7 @@ class Agent:
         """按工具名分发调用。
 
         - fetchUrl / searchWeb：显式分支调用联网工具；
+        - RunCli：显式分支调用命令行工具；
         - 其余工具（10 个文件工具）：交给 ToolRegistry 原有逻辑。
         """
         start = time.perf_counter()
@@ -278,6 +286,8 @@ class Agent:
                 output = fetch_url(**parsed)
             elif name == "searchWeb":
                 output = search_web(**parsed)
+            elif name == "RunCli":
+                output = run_cli(**parsed)
             else:
                 # 文件工具保持原行为：由注册表统一解析、校验与收敛异常
                 return self.registry.invoke(name, raw_arguments)
