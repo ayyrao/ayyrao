@@ -20,6 +20,7 @@ from core.events import (
 HELP = """可用命令：
   /help    显示帮助
   /clear   重置 Agent 上下文
+  /skills  列出已发现的 Agent Skills
   /status  查看运行状态
   /quit    退出"""
 
@@ -57,11 +58,26 @@ async def repl() -> int:
                 agent.reset()
                 print("上下文已清空。\n")
                 continue
+            if line == "/skills":
+                skills = agent.skills.available_skills()
+                print(f"Skills 根目录：{agent.skills.skills_root}")
+                if not skills:
+                    print("未发现任何 Skill。\n")
+                else:
+                    for skill in skills:
+                        print(f"- {skill.name}: {skill.description}")
+                    print()
+                for warning in agent.skills.warnings:
+                    print(f"[警告] {warning}")
+                if agent.skills.warnings:
+                    print()
+                continue
             if line == "/status":
                 print(f"模型：{settings.model}")
                 print(f"沙箱：{agent.sandbox.root}")
                 print(f"上下文消息数：{len(agent.history)}")
-                print(f"可用工具数：{len(agent.tools)}\n")
+                print(f"可用工具数：{len(agent.tools)}")
+                print(f"可用技能数：{len(agent.skills.skills)}\n")
                 continue
 
             line_open = False

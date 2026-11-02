@@ -28,12 +28,23 @@ Agent/xAgent/
 │   ├── llm/
 │   │   ├── __init__.py
 │   │   └── client.py          # AsyncOpenAI 封装
+│   ├── skills/                # Agent Skills 动态加载（新增）
+│   │   ├── __init__.py
+│   │   ├── frontmatter.py     # 只读 SKILL.md 头部的 YAML 解析
+│   │   ├── loader.py          # 发现 / Prompt 注入 / loadSkill / 路径安全
+│   │   └── schemas.py         # loadSkill 的 function-calling 声明
 │   └── tools/
 │       ├── __init__.py        # build_default_registry()（文件工具）
 │       ├── registry.py        # ToolSpec / ToolRegistry
 │       ├── file_tools.py      # 10 个文件工具实现（未改动）
 │       ├── file_schemas.py    # 10 个文件工具声明（未改动）
 │       └── web_tools.py       # fetchUrl / searchWeb 实现 + 两个 schema
+├── .agents/skills/            # 项目级技能目录（以启动时工作目录为准）
+│   └── horoscope-daily/       # 示例技能包
+│       ├── SKILL.md
+│       ├── references/
+│       └── scripts/
+├── skill_acceptance_test.py   # Skills 一键验收（离线）
 └── tui/                       # ============ 界面层 ============
     ├── app.py
     ├── styles.tcss
@@ -226,6 +237,82 @@ else:
 }
 ```
 
+### 3.3 Agent Skills（新增）
+
+#### 目录约定
+
+项目根目录 = **程序启动时的工作目录**（`Path.cwd()`），不是 Python 安装目录，
+也不是 xAgent 代码目录。xAgent 初始化时扫描：
+
+```text
+<project_root>/.agents/skills/
+└── <skill-dir>/
+    ├── SKILL.md          # 必需：YAML Frontmatter 必须有 name / description
+    ├── references/...    # 可选附件
+    └── scripts/...       # 可选附件
+```
+
+`SKILL.md` Frontmatter 样例：
+
+```markdown
+---
+name: horoscope-daily
+description: >-
+  查询十二星座今日运势，生成综合指数、幸运色、幸运数字与宜忌建议。
+  当用户询问“今日运势”“星座运势”等话题时使用。
+license: MIT
+---
+
+# Horoscope Daily
+
+正文只在 LLM 调用 `loadSkill` 后才会进入上下文。
+```
+
+初始化阶段只逐行读取到第二个 `---` 为止，**不读取正文**；缺少 `name` /
+`description`、Frontmatter 损坏、同名技能、没有 `SKILL.md` 的目录会被跳过，
+并记录在 `SkillLoader.warnings`，不会阻断 Agent 启动。
+
+#### System Prompt 注入
+
+发现技能后，会在原 System Prompt 末尾追加：
+
+```text
+You have access to the following skills:
+- `horoscope-daily`: 查询十二星座今日运势……
+
+Use the `loadSkill` tool to load the full instructions of a skill when needed.
+You can also load additional files referenced by a skill by passing the `filename` argument.
+```
+
+没有技能时不追加任何内容，原 Prompt 与原有工具行为完全不变。
+
+#### loadSkill 行为
+
+| 调用方式 | 行为 |
+| --- | --- |
+| `{"name": "x"}` | 返回该技能 `SKILL.md` 全文；同一对话内重复调用返回 `already_loaded=true`，不再回传正文 |
+| `{"name": "x", "filename": "references/rules.md"}` | 只读附件，不加载 `SKILL.md`，也不改变“已加载”状态 |
+| `filename` 为技能相对路径 | 优先精确匹配 `<skill_dir>/<filename>` |
+| `filename` 为项目相对路径 | 精确匹配 `<project_root>/<filename>`，最终必须位于技能目录内 |
+| `filename` 为绝对路径 | 精确匹配，最终必须位于技能目录内 |
+| `filename` 只有文件名 | 在技能目录内递归搜索（大小写不敏感）；同名多个文件返回 `candidates` 列表 |
+
+安全边界：所有路径都先 `resolve()`（展开符号链接 / junction），再用
+`is_relative_to(skill_dir)` 校验；`../`、反斜杠穿越、目录外绝对路径都会返回
+`path_outside_skill`。读取上限 1 MiB，非 UTF-8 / 二进制文件拒绝读取。
+
+#### 错误类型
+
+| `error.type` | 场景 |
+| --- | --- |
+| `invalid_arguments` | `name` 为空 / 不是字符串 |
+| `skill_not_found` | 技能名不在已发现列表中 |
+| `invalid_filename` | 文件名为空或含空字符 |
+| `path_outside_skill` | 解析后落在技能目录之外 |
+| `file_not_found` | 路径不存在或仅文件名搜索无结果 |
+| `ambiguous_filename` | 递归搜索到多个同名文件，返回 `candidates` |
+| `file_too_large` / `binary_file` / `not_utf8` | 附件不满足文本读取条件 |
+
 ---
 
 ## 四、安全与稳定性
@@ -236,6 +323,9 @@ else:
 - 下载上限 5 MiB，正文回灌上限 2 万字符（`truncated=true`）；
 - API Key 只从 `config.ini` 的 `[search]` 读取，源码中没有任何密钥；
 - 文件工具继续使用 `PathSandbox`：`resolve()` + `is_relative_to()`，阻止路径越界；
+- `loadSkill` 复用同一套思路：路径 `resolve()` 后必须位于当前技能目录内，
+  符号链接、`../`、反斜杠穿越与目录外绝对路径一律拒绝；
+- 技能初始化只读 Frontmatter，正文按需加载，避免无关技能占用上下文；
 - 工具异常统一收敛为字符串，Agent 主循环不会因工具失败而崩溃。
 
 ---
@@ -368,11 +458,55 @@ python -X utf8 -c "from core.tools.web_tools import search_web; print(search_web
 python -X utf8 -c "
 from core.agent import Agent
 a = Agent()
-print('tools:', len(a.tools))                       # 12
-print('web:', [t['function']['name'] for t in a.tools][-2:])
+print('tools:', len(a.tools))                       # 14（10 文件 + RunCli + 2 联网 + loadSkill）
+print('names:', [t['function']['name'] for t in a.tools][-4:])
 print(a._dispatch_tool('fetchUrl', '{\"url\": \"https://example.com\"}').ok)
 print(a._dispatch_tool('list_dir', '{\"path\": \".\"}').ok)
+print(a._dispatch_tool('loadSkill', '{\"name\": \"horoscope-daily\"}').ok)
 "
+```
+
+### 7.3 Skills 一键验收（离线）
+
+```bash
+# 从 xAgent 目录运行：项目根 = 当前目录，能发现 .agents/skills/horoscope-daily
+python skill_acceptance_test.py -v
+```
+
+覆盖发现与注册、Frontmatter 解析、Prompt 注入、SKILL.md 去重、附件路径、
+同名候选、路径穿越拦截与 Agent 分发集成。
+
+### 7.4 手工验证 horoscope-daily
+
+```bash
+# 1) 确认技能被发现（不会加载正文）
+python -X utf8 -c "
+from core.skills import SkillLoader
+l = SkillLoader()
+print(l.skills_root)
+print(l.prompt_section())
+"
+
+# 2) 加载 SKILL.md 全文
+python -X utf8 -c "
+from core.skills import SkillLoader
+l = SkillLoader()
+print(l.load_skill('horoscope-daily'))
+"
+
+# 3) 读取附件（技能相对 / 项目相对 / 仅文件名）
+python -X utf8 -c "
+from core.skills import SkillLoader
+l = SkillLoader()
+for f in ['references/rules.md', '.agents/skills/horoscope-daily/references/examples.md', 'rules.md']:
+    print(f, '->', l.load_skill('horoscope-daily', f)[:120])
+"
+
+# 4) 运行技能自带脚本（与 RunCli 协同）
+python .agents/skills/horoscope-daily/scripts/horoscope.py --sign 白羊座
+
+# 5) 启动 CLI，输入“帮我看看白羊座今天的运势”
+python run_cli.py
 ```
 
 ### 7.3 端到端 Agent 对话测试
@@ -404,7 +538,10 @@ python run_cli.py
 
 - 文件工具：在 `file_tools.py` 加方法、`file_schemas.py` 加声明，注册表自动分发；
 - 联网工具：在 `web_tools.py` 加 schema 和函数，再追加到 `WEB_TOOL_SCHEMAS`，
-  并在 `Agent._dispatch_tool()` 增加一个显式分支。
+  并在 `Agent._dispatch_tool()` 增加一个显式分支；
+- 技能相关工具：沿用联网工具的模式——在 `core/skills/schemas.py` 声明 schema，
+  追加到 `Agent.tools`，并在 `_dispatch_tool()` 加显式分支（`loadSkill`
+  就是这么接入的，原有文件工具与 RunCli 的注册逻辑未改动）。
 
 ---
 
@@ -415,6 +552,7 @@ openai>=1.40.0
 textual>=0.80.0
 requests>=2.31.0
 trafilatura>=1.12.0
+PyYAML>=6.0        # 可选：SKILL.md Frontmatter；缺失时自动回退内置解析器
 ```
 
 系统依赖：

@@ -2,3 +2,5 @@ openai>=1.40.0
 textual>=0.80.0
 requests>=2.31.0
 trafilatura>=1.12.0
+# Agent Skills 的 YAML Frontmatter 解析；缺失时会回退到内置最小解析器
+PyYAML>=6.0
