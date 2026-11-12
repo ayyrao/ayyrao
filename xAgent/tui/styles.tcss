@@ -1,0 +1,406 @@
+/* =============================================================================
+ * xAgent TUI 主题（任务 2：视觉升级）
+ *
+ * 配色原则：深色低饱和度，正文与背景对比度足够高，长时间使用不刺眼。
+ *   背景    #0f1117 / #0b0e14
+ *   面板    #121822 / #10141d
+ *   边框    #232a3a / #2a3142
+ *   正文    #d8dee9（对比度 ≈ 12:1）
+ *   次要    #8b949e
+ *   强调    #5b8def（与 app.py 中 Rich 标记颜色保持一致）
+ *   状态    绿 #3fb950 / 黄 #e3b341 / 红 #f85149
+ * ========================================================================== */
+
+Screen {
+    background: #0f1117;
+    color: #d8dee9;
+}
+
+Header {
+    background: #121722;
+    color: #e6edf3;
+}
+
+Footer {
+    background: #121722;
+    color: #6e7681;
+}
+
+/* ---------- 新增：顶部状态栏（模型 / 上下文 / MCP / 技能） ---------- */
+
+.top-bar {
+    height: 1;
+    padding: 0 1;
+    background: #121722;
+    color: #8b949e;
+    border-bottom: solid #232a3a;
+}
+
+/* ---------- 主体布局：左侧固定边栏 + 右侧对话区 ---------- */
+
+#body {
+    height: 1fr;
+}
+
+#main {
+    width: 1fr;
+    height: 1fr;
+}
+
+#sidebar {
+    width: 34;
+    height: 1fr;
+    padding: 0 1;
+    background: #0b0e14;
+    border-right: solid #232a3a;
+    scrollbar-size-vertical: 1;
+    scrollbar-background: #0b0e14;
+    scrollbar-color: #2a3142;
+    scrollbar-color-hover: #3a4358;
+}
+
+/* 边栏三个分区：卡片式布局 + 分区标题分隔线 + 悬停高亮 */
+.side-section {
+    width: 100%;
+    height: auto;
+    margin: 0 0 1 0;
+    padding: 0 1;
+    background: #10141d;
+    border: round #232a3a;
+}
+
+.side-section:hover {
+    background: #141b28;
+    border: round #2f3a50;
+}
+
+.side-title {
+    width: 100%;
+    height: 2;
+    padding: 0 0;
+    background: transparent;
+    color: #7aa2f7;
+    text-style: bold;
+    border-bottom: solid #232a3a;
+}
+
+.side-body {
+    width: 100%;
+    height: auto;
+    padding: 0 0 1 0;
+    background: transparent;
+    color: #a8b3c4;
+}
+
+/* ---------- 对话区 ---------- */
+
+#chat {
+    height: 1fr;
+    padding: 1 3;
+    background: #0f1117;
+    scrollbar-size-vertical: 1;
+    scrollbar-background: #0f1117;
+    scrollbar-color: #2a3142;
+    scrollbar-color-hover: #3a4358;
+}
+
+/* 消息行容器：负责左右对齐（Textual 8.x 的 margin 不支持 auto） */
+.msg-row {
+    width: 100%;
+    height: auto;
+    margin: 1 0;
+    padding: 0;
+}
+
+.msg-row-user {
+    align-horizontal: right;
+}
+
+.msg-row-assistant {
+    align-horizontal: left;
+}
+
+/* 用户消息：右侧对齐、深蓝底、圆角边框 */
+.msg-user {
+    width: 84%;
+    margin: 0;
+    padding: 0 2;
+    background: #1a2740;
+    color: #e6edf3;
+    border: round #3d5a9e;
+    border-title-color: #7aa2f7;
+}
+
+/* 助手消息：左侧对齐、深灰底、圆角边框；与用户消息形成左右分栏 */
+.msg-assistant {
+    width: 92%;
+    margin: 0;
+    padding: 0 2;
+    background: #121822;
+    color: #d8dee9;
+    border: round #2a3a52;
+    border-title-color: #3fb950;
+}
+
+Markdown {
+    background: transparent;
+    color: #d8dee9;
+}
+
+.msg-system {
+    width: 1fr;
+    margin: 1 6;
+    padding: 0 2;
+    color: #8b949e;
+    background: transparent;
+    text-align: center;
+}
+
+.msg-system.warn {
+    background: #2a2314;
+    color: #e3b341;
+    border-left: thick #d29922;
+    text-align: left;
+}
+
+.msg-error {
+    width: 1fr;
+    margin: 1 2;
+    padding: 0 2;
+    background: #2a1417;
+    color: #ffb4ae;
+    border-left: thick #f85149;
+}
+
+/* ---------- 工具调用：默认折叠，只显示工具名 + 状态 ---------- */
+
+.tool-panel {
+    width: 88%;
+    margin: 1 0 1 1;
+    background: #101620;
+    border: round #2a3142;
+}
+
+.tool-panel > CollapsibleTitle {
+    background: #172032;
+    color: #9fb3d1;
+}
+
+.tool-panel > CollapsibleTitle:hover {
+    background: #1d2a40;
+}
+
+/* 成功 / 失败状态使用不同边框与标题颜色 */
+.tool-panel.tool-ok {
+    border: round #245136;
+}
+
+.tool-panel.tool-ok > CollapsibleTitle {
+    color: #3fb950;
+}
+
+.tool-panel.tool-fail {
+    border: round #6e2a2a;
+}
+
+.tool-panel.tool-fail > CollapsibleTitle {
+    color: #f85149;
+}
+
+.tool-body {
+    padding: 0 1;
+    color: #a8b3c4;
+    background: transparent;
+}
+
+/* ---------- 状态栏与输入框 ---------- */
+
+.context-bar {
+    height: 1;
+    padding: 0 1;
+    background: #0b0e14;
+    color: #7d8590;
+    border-top: solid #1b2130;
+}
+
+.context-bar.locked {
+    color: #e3b341;
+    text-style: bold;
+}
+
+.status-bar {
+    height: 1;
+    padding: 0 1;
+    background: #0b0e14;
+    color: #8b949e;
+}
+
+.status-bar.busy {
+    color: #d2a8ff;
+}
+
+.status-bar.error {
+    color: #f85149;
+}
+
+/* ---------- 斜杠命令补全面板（与输入框统一圆角边框） ---------- */
+
+.command-palette {
+    display: none;
+    height: auto;
+    max-height: 14;
+    margin: 0 1;
+    padding: 0 1;
+    background: #131a26;
+    border: round #3d5a9e;
+    border-title-color: #7aa2f7;
+    color: #d8dee9;
+}
+
+.command-palette.visible {
+    display: block;
+}
+
+#prompt {
+    height: 3;
+    margin: 0 1 1 1;
+    padding: 0 1;
+    border: round #2a3142;
+    border-title-color: #6e7681;
+    background: #121822;
+    color: #e6edf3;
+}
+
+#prompt:focus {
+    border: round #5b8def;
+    border-title-color: #7aa2f7;
+}
+
+#prompt:disabled {
+    color: #5c6675;
+    background: #0f131b;
+    border: round #1b2130;
+}
+
+/* ---------- 模态框：配置提示 / 历史会话 ---------- */
+
+ConfigNoticeScreen,
+SessionPicker {
+    align: center middle;
+    background: #000000 70%;
+}
+
+.modal-dialog {
+    width: 76%;
+    height: auto;
+    max-height: 84%;
+    padding: 1 2;
+    background: #151a24;
+    border: thick #5b8def;
+}
+
+.config-dialog {
+    width: 68%;
+}
+
+.session-dialog {
+    width: 72%;
+    height: 72%;
+}
+
+.modal-title {
+    height: 2;
+    color: #e6edf3;
+    text-style: bold;
+}
+
+.modal-body {
+    height: auto;
+    margin: 1 0;
+    color: #a8b3c4;
+}
+
+.modal-hint {
+    height: 1;
+    margin-top: 1;
+    color: #7d8590;
+}
+
+#session-list {
+    height: 1fr;
+    margin: 1 0;
+    background: #0f1117;
+    border: round #2a3142;
+}
+
+#session-list > ListItem {
+    padding: 0 1;
+}
+
+#session-list > ListItem:hover {
+    background: #172032;
+}
+
+#config-confirm {
+    width: 22;
+    height: 3;
+    margin-top: 1;
+}
+
+/* ---------- /compact 双栏浮动面板 ---------- */
+
+CompactPanel {
+    align: center middle;
+    background: #000000 70%;
+}
+
+#compact-dialog {
+    width: 96%;
+    height: 92%;
+    padding: 1 1;
+    background: #151a24;
+    border: thick #5b8def;
+}
+
+#compact-title {
+    height: 1;
+    color: #e6edf3;
+    text-style: bold;
+}
+
+#compact-columns {
+    height: 1fr;
+}
+
+.compact-column {
+    width: 1fr;
+    height: 100%;
+    margin: 0 1 0 0;
+    border: round #2a3142;
+}
+
+.compact-header {
+    height: 1;
+    padding: 0 1;
+    background: #1a2233;
+    color: #9fb3d1;
+    text-style: bold;
+}
+
+.compact-scroll {
+    height: 1fr;
+    padding: 0 1;
+    scrollbar-background: #151a24;
+    scrollbar-color: #2a3142;
+}
+
+.compact-text {
+    width: 100%;
+    color: #a8b3c4;
+}
+
+#compact-close {
+    width: 16;
+    height: 3;
+    margin-top: 1;
+}
