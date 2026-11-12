@@ -1,10 +1,14 @@
 # xAgent — 文件管理 + 联网搜索 Function Call Agent
 
 基于 OpenAI SDK（DeepSeek 接口）与 Textual 的 Function Calling Agent。
-在原有 10 个文件工具的基础上，新增两个联网工具：
+在原有 10 个文件工具的基础上，新增 RunCli、三个联网工具与两个技能工具：
 
 - **`fetchUrl`**：`subprocess` 调用 `curl` 下载网页，`trafilatura` 提取正文并转 Markdown；
-- **`searchWeb`**：调用百度千帆 AI 搜索 API，返回标题、摘要、url 列表。
+- **`fetchWeb`**：用 `requests` 直连抓取，适合 curl 不可用或被拦的环境；
+- **`searchWeb`**：调用百度千帆 AI 搜索 API，返回标题、摘要、url 列表；
+- **`RunCli`**：在受控参数下执行命令行程序，捕获 stdout/stderr 与退出码；
+- **`loadSkill` / `createSkill`**：按需加载 Agent Skills 的完整说明，或把新技能落盘；
+- **`recallContext`**：在会话被压缩后按关键词回捞历史片段，避免长对话丢上下文。
 
 核心层不依赖任何 UI 库，CLI 与 Textual TUI 复用同一套 Agent 与事件流。
 
@@ -13,7 +17,7 @@
 ## 一、目录结构
 
 ```text
-Agent/xAgent/
+xAgent/
 ├── config.ini                 # 本地配置（含密钥，已被 .gitignore 忽略）
 ├── config.example.ini         # 配置模板
 ├── requirements.txt
@@ -134,13 +138,16 @@ self.registry = registry or build_default_registry(self.sandbox)
 self.tools = self.registry.schemas() + WEB_TOOL_SCHEMAS
 ```
 
-- 10 个文件工具：继续使用 `ToolRegistry`，原有实现与分发逻辑完全不变；
-- `fetchUrl` / `searchWeb`：schema 追加到 `self.tools`，调用时由
-  `Agent._dispatch_tool()` 的显式 `if/elif` 分支处理：
+- 10 个文件工具与 `RunCli`：走 `ToolRegistry` 注册表，原有实现与分发逻辑完全不变；
+- `fetchUrl` / `fetchWeb` / `searchWeb`：schema 追加到 `self.tools`，调用时由
+  `Agent._dispatch_tool()` 的显式 `if/elif` 分支处理；
+- `loadSkill` / `createSkill`：同样以显式分支接入，技能清单只在 system prompt 里留名字与一句话描述，正文按需加载。
 
 ```python
 if name == "fetchUrl":
     output = fetch_url(**parsed)
+elif name == "fetchWeb":
+    output = fetch_web(**parsed)
 elif name == "searchWeb":
     output = search_web(**parsed)
 else:
@@ -179,6 +186,7 @@ else:
 | 工具 | 入参 | 行为 |
 | --- | --- | --- |
 | `fetchUrl` | `url, timeout=20` | `subprocess` 列表参数调用 `curl` 下载页面（禁止 `shell=True`），`trafilatura` 提取正文转 Markdown，自动过滤导航/广告 |
+| `fetchWeb` | `url, timeout=20` | `requests` 直连抓取，不依赖系统 curl，同样走 trafilatura 提取正文 |
 | `searchWeb` | `query, top_k=10` | 从 `config.ini` 读取 `[search] baidu_qianfan_api_key`，调用百度千帆 AI 搜索，返回标题、摘要、url |
 
 #### fetchUrl 异常分类
@@ -335,7 +343,7 @@ You can also load additional files referenced by a skill by passing the `filenam
 ### 5.1 安装依赖
 
 ```bash
-cd Agent/xAgent
+cd xAgent
 python -m venv .venv
 
 # Windows CMD / PowerShell
@@ -496,7 +504,7 @@ python -X utf8 -c "from core.tools.web_tools import search_web; print(search_web
 python -X utf8 -c "
 from core.agent import Agent
 a = Agent()
-print('tools:', len(a.tools))                       # 14（10 文件 + RunCli + 2 联网 + loadSkill）
+print('tools:', len(a.tools))                       # 17（10 文件 + RunCli + 3 联网 + loadSkill + createSkill + recallContext）
 print('names:', [t['function']['name'] for t in a.tools][-4:])
 print(a._dispatch_tool('fetchUrl', '{\"url\": \"https://example.com\"}').ok)
 print(a._dispatch_tool('list_dir', '{\"path\": \".\"}').ok)

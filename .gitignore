@@ -1,1 +1,21 @@
+# 凭据与本地配置
 config.ini
+.env
+*.env
+!.env.example
+
+# Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 运行时数据与日志
+*.log
+PetHospitalServer/data/pet.db
+xAgent/.agents/sessions/
+
+# 编辑器与系统
+.idea/
+.vscode/
+.DS_Store

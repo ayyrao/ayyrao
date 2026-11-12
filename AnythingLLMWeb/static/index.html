@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AnythingLLM 知识库控制台</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark"></span>
+      <div>
+        <h1>知识库控制台</h1>
+        <p>AnythingLLM · 工作区 / 文档 / 对话</p>
+      </div>
+    </div>
+    <div class="status">
+      <span id="healthDot" class="dot"></span>
+      <span id="healthText">正在检测服务…</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel side">
+      <section class="block">
+        <div class="block-head">
+          <h2>工作区</h2>
+          <button id="refreshBtn" class="ghost" type="button">刷新</button>
+        </div>
+        <select id="workspaceSelect" class="select"></select>
+        <form id="createForm" class="inline">
+          <input id="newWorkspaceName" type="text" placeholder="新建工作区名称" maxlength="80" />
+          <button type="submit">创建</button>
+        </form>
+      <p class="hint" id="workspaceHint">选择工作区后即可上传文档或提问。</p>
+      </section>
+
+      <section class="block">
+        <div class="block-head"><h2>上传并向量化</h2></div>
+        <label id="dropZone" class="drop">
+          <input id="fileInput" type="file" hidden />
+          <span class="drop-title">点击或拖入文档</span>
+          <span class="drop-sub">支持 pdf / txt / md / docx，单个不超过 20MB</span>
+        </label>
+        <div id="uploadState" class="state" hidden></div>
+      </section>
+    </aside>
+
+    <section class="panel chat">
+      <div class="block-head">
+        <h2>对话</h2>
+        <span class="mode" id="modeTag">chat</span>
+      </div>
+      <div id="messages" class="messages">
+        <div class="empty" id="emptyState">
+          <p>向当前工作区提问，回答会引用已向量化的文档。</p>
+        </div>
+      </div>
+      <form id="chatForm" class="composer">
+        <textarea id="chatInput" rows="1" placeholder="输入问题，Enter 发送，Shift+Enter 换行"></textarea>
+        <button id="sendBtn" type="submit">发送</button>
+      </form>
+      <p id="chatError" class="error" hidden></p>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
